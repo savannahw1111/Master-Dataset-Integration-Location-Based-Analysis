@@ -1,0 +1,401 @@
+---
+title: "Final Project"
+author: "Savannah Wallis"
+date: "2026-02-05"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Loading Data
+```{r}
+# Loading GBIF data
+collection <- read.csv("C:/Users/savan/Downloads/Mammal_CSV - 0015128-260129131611470.csv")
+
+# Viewing head
+head(collection)
+
+```
+
+## Discoverying the Data
+```{r}
+# Loading important libraries
+library(dplyr)
+library(tidyr)
+
+# Looking at structure, dimension and column names
+cat("\n--- Structure/Dim/Colnames ---\n")
+str(collection)
+dim(collection)
+colnames(collection)
+
+# Finding rows with NAs
+collection_na <- collection %>%
+  filter(if_any(everything(), is.na))
+collection_na
+
+# Looking at sums of NAs per column
+cat("\n--- Finding NAs ---\n")
+colSums(is.na(collection))
+
+# Summarizing the important columns
+cat("\n--- Summary: Year ---\n")
+summary(collection$year)
+cat("\n--- Summary: Latitude ---\n")
+summary(collection$decimalLatitude)
+cat("\n--- Summary: Longitude ---\n")
+summary(collection$decimalLongitude)
+
+# Looking at top countries
+collection %>%
+  count(countryCode, sort = TRUE) %>%
+  head(10)
+
+# Looking at top species
+collection %>%
+  count(scientificName, sort = TRUE) %>%
+  head(10)
+
+# Checking for duplicates
+cat("\n--- Duplicates ---\n")
+sum(duplicated(collection$occurrenceID))
+sum(duplicated(collection$gbifID))
+sum(duplicated(collection$datasetKey))
+```
+
+## Cleaning the Data
+1. Getting rid of completely empty columns (120 NAs)
+```{r}
+# Many columns lack any info at all and are not needed (120 NAs) in column
+collection <- collection %>%
+  select(-verbatimScientificNameAuthorship, -individualCount, -typeStatus, -mediaType, -establishmentMeans, -rightsHolder, -depthAccuracy, -coordinatePrecision, -depth)
+
+# Viewing now to see if zero-data columns are gone (120 NAs)
+colSums(is.na(collection))
+
+```
+
+## Cleaning the Data
+2.Fixing blank strings to NAs 
+```{r}
+# I immedietaly saw NA strings as opposed to true NAs so we are fixing it using dplyer pipe
+collection[collection == "" | tolower(collection) %in% c("none","null","na","n/a")] <- NA
+
+# Viewing now to see if NA amounts increase
+colSums(is.na(collection)) # IT WORKED!
+
+```
+
+## Cleaning the Data
+3.Fixing Event Dates
+```{r}
+# Checking all the dates in eventDate
+collection %>%
+  count(eventDate) %>% arrange(desc(eventDate))
+
+# Found lots of dates with ranges like ____/____ so I am splitting them into start and end dates
+collection <- collection %>%
+  rename(EventRangeStartDate = eventDate) %>%
+  mutate(
+    EventRangeEndDate = sub(".*/", "", EventRangeStartDate),
+    EventRangeStartDate = sub("/.*", "", EventRangeStartDate))
+
+# Making sure both columns are as.Date
+collection <- collection %>%
+  mutate(
+    EventRangeStartDate = as.Date(EventRangeStartDate),
+    EventRangeEndDate = as.Date(EventRangeEndDate)
+  )
+
+# Viewing again
+collection[, c("gbifID", "EventRangeStartDate", "EventRangeEndDate", "day", "month", "year")]
+
+```
+## Cleaning the Data
+4.Fixing more date formats from date identified column
+```{r}
+# Fixing date format for Date Identified
+collection <- collection %>%
+  mutate(
+    dateIdentified = as.Date(dateIdentified),
+  )
+```
+
+## Cleaning the Data
+5.Fixing the unknown collectors and identifiers
+```{r}
+# Fixing the unknown labels in identifiers to NA
+collection$identifiedBy[tolower(collection$identifiedBy) == "unknown"] <- NA
+
+# Fixing the unknown labels in collectors to NA
+collection$recordedBy[collection$recordedBy == "Collector(s): unknown"] <- NA
+
+# Viewing corrections
+collection %>%
+  count(identifiedBy)
+collection %>%
+  count(recordedBy)
+```
+
+## Cleaning the Data
+6.Fixing the time stamp of last interpreted
+```{r}
+# Loading package
+library(lubridate)
+
+# Using lubridate function ymd_hms to convert to a proper time stamp
+collection$lastInterpreted <- ymd_hms(collection$lastInterpreted, tz = "UTC")
+
+# Checking fix
+collection[, c("lastInterpreted", "gbifID")]
+
+```
+
+## Structuring the Data
+```{r}
+# Checking column names to see if anything should be changed
+colnames(collection)
+
+# Renaming with consistent lowercase and underscore format
+collection <- collection %>%
+  rename(
+    gbif_id = gbifID,
+    dataset_key = datasetKey,
+    occurrence_id = occurrenceID,
+    scientific_name = scientificName,
+    verbatim_scientific_name = verbatimScientificName,
+    infraspecific_epithet = infraspecificEpithet,
+    taxon_rank = taxonRank,
+    country_code = countryCode,
+    state_province = stateProvince,
+    occurrence_status = occurrenceStatus,
+    publishing_org_key = publishingOrgKey,
+    decimal_latitude = decimalLatitude,
+    decimal_longitude = decimalLongitude,
+    coordinate_uncertainty_m = coordinateUncertaintyInMeters,
+    elevation_m = elevation,
+    elevation_accuracy = elevationAccuracy,
+    event_range_start_date = EventRangeStartDate,
+    event_range_end_date = EventRangeEndDate,
+    taxon_key = taxonKey,
+    species_key = speciesKey,
+    basis_of_record = basisOfRecord,
+    institution_code = institutionCode,
+    collection_code = collectionCode,
+    catalog_number = catalogNumber,
+    record_number = recordNumber,
+    identified_by = identifiedBy,
+    date_identified = dateIdentified,
+    recorded_by = recordedBy,
+    last_interpreted = lastInterpreted)
+
+# Reordering columns to make more sense too
+collection <- collection %>%
+  select(occurrence_id, gbif_id, dataset_key,,
+         kingdom, phylum, class, order, family, genus, species, scientific_name, verbatim_scientific_name,
+         country_code, state_province, locality, decimal_latitude, decimal_longitude,
+         year, month, day, event_range_start_date, event_range_end_date,
+         basis_of_record, institution_code, collection_code, catalog_number,
+         recorded_by, identified_by, date_identified,
+         everything())
+
+# Checking data
+head(collection)
+
+```
+
+## Eriching the Data
+1. Adding columns
+```{r}
+# Subtracting the identification date from the collection date to find days until identfied
+collection$days_from_collecting_to_identifying <- as.numeric(collection$date_identified - collection$event_range_end_date)
+
+# Finding time that has passe since last interpreted or looked at
+collection$days_since_last_interpreted <- as.numeric(difftime(Sys.Date(), collection$last_interpreted, units = "days"))
+
+# Adding hemisphere enrichment
+collection$hemisphere <- ifelse(collection$decimal_latitude >= 0, "Northern", "Southern")
+
+# Adding season enrichment
+collection$collected_season <- ifelse(collection$month %in% c(12,1,2), "Winter", ifelse(collection$month %in% c(3,4,5), "Spring", ifelse(collection$month %in% c(6,7,8), "Summer", ifelse(collection$month %in% c(9,10,11), "Fall", NA))))
+
+# Viewing new columns
+head(collection)
+
+```
+
+## Integrating the Data
+```{r}
+# Importing common names from other animal database
+common_names <- read.csv("C:/Users/savan/Downloads/MDD_v2.4_6871species.csv")
+head(common_names)
+
+# Changing the scientific name to have spaces instead of underscore
+common_names$sciName <- gsub("_", " ", common_names$sciName)
+head(common_names)
+
+# Conducting a left join to add in the common names
+collection <- collection %>%
+  left_join(common_names %>% select(sciName, mainCommonName),
+            by = c("species" = "sciName"))
+
+head(collection)
+```
+
+## Validating the Data
+```{r}
+# Checking for values that make sense (min/max)
+cat("\n--- Elevation ---\n")
+min(collection$elevation_m)
+min(collection$elevation_m)
+
+cat("\n--- Lattitute ---\n")
+min(collection$decimal_latitude)
+min(collection$decimal_latitude)
+
+cat("\n--- Longitute ---\n")
+min(collection$decimal_longitude)
+min(collection$decimal_longitude)
+
+cat("\n--- Year ---\n")
+min(collection$year)
+min(collection$year)
+
+cat("\n--- Month ---\n")
+min(collection$month)
+min(collection$month)
+
+cat("\n--- Day ---\n")
+min(collection$day)
+min(collection$day)
+
+cat("\n--- Date Identified ---\n")
+min(collection$date_identified)
+min(collection$date_identified)
+
+# Checking the counts/groups of character categories for any inconsistencies
+collection %>% count(species)
+collection %>% count(country_code)
+collection %>% count(state_province)
+collection %>% count(basis_of_record)
+collection %>% count(hemisphere)
+collection %>% count(collected_season)
+
+
+# Re-checking IDs
+sum(duplicated(collection$occurrence_id))
+sum(duplicated(collection$gbif_id))
+```
+
+## Results and Visualizations
+1. Question: How do the mammal latitudes change with the season? (At time of collection)
+```{r}
+# Loading plot library
+library(ggplot2)
+
+# Customizing a boxplot of latitudes by season. I used a lot of colors here.
+collection %>%
+  filter(!is.na(collected_season)) %>%
+ggplot(aes(x = collected_season, y = decimal_latitude, fill = collected_season)) +
+    geom_boxplot(alpha = 0.7) + geom_jitter(aes(color = collected_season), width = 0.2, alpha = 0.4, size = 1.5)  +
+    labs(title = paste("Box Plot of Mammal Latitude\nby Season (at time of collection) "),
+         x = "Season",
+         y = "Decimal Latitude") + theme_classic() + theme(
+   plot.background = element_rect(fill = "#1e1e1e", color = "black"),
+  panel.background = element_rect(fill = "#2b2b2b", color =  NA),
+  plot.title = element_text(face = "bold", size = 18, hjust = 0.5, color = "lightgrey"),
+  axis.title = element_text(face = "bold", size = 14, color = "lightgrey"),
+  axis.text = element_text(color = "lightgrey"),
+  panel.grid.major = element_line(color = "lightgrey"),
+  panel.grid.minor = element_line(color = "lightgrey"), axis.line.x = element_line(color = "black")) + scale_color_brewer(palette = "PiYG") +  scale_fill_brewer(palette = "PiYG")
+
+```
+
+## Results and Visualizations
+2. Collections by year
+```{r}
+# Making sure that each year is a collection so it appears correctly on bar chart
+collection$year <- factor(collection$year)
+
+# Getting rid of NAs and making count columns
+counts <- collection %>%
+  filter(!is.na(year)) %>%
+  count(year)
+counts
+
+# Using ggplot and lots of colors to make a nice chart. I had to adjust the width to fit everything
+ggplot(counts, aes(x = year, y = n)) +
+  geom_col(width =1.0,binwidth = 2, fill = "#0453d1", color = "black")  +
+  labs(title = "Mammal Collection Counts Over Time", 
+       x = "Year",
+       y = "Counts") + theme_classic() +
+  theme(
+   plot.background = element_rect(fill = "#1e1e1e", color = "black"),
+    panel.background = element_rect(fill = "#2b2b2b", color =  NA),
+    plot.title = element_text(face = "bold", size = 18, hjust = 0.5, color = "#78aef5"),
+  axis.title = element_text(face = "bold", size = 14, color = "#78aef5"),
+  axis.text = element_text(color = "#78aef5"),
+  panel.grid.major = element_line(color = "#78aef5"),
+  panel.grid.minor = element_line(color = "#78aef5"), 
+  axis.line.x = element_line(color = "black"))
+
+```
+
+## Results and Visualizations
+3. Top Mammals by Hemisphere
+```{r}
+# Creating a subset where the max top ten animals is selected for each hemisphere and getting rid of NAs. Selecting common name
+top_hemisphere <- collection %>%
+  filter(!is.na(hemisphere), !is.na(mainCommonName)) %>%
+  count(hemisphere, mainCommonName) %>%
+  group_by(hemisphere) %>%
+  slice_max(n, n = 10) %>%
+  ungroup()
+
+# Creating the plots and using a facet wrap to include both. I had to fip the coordiantes in the y axis
+ggplot(top_hemisphere, aes(x = reorder(mainCommonName, n), y = n)) +
+  geom_col(binwidth = 160, fill = "lightgreen", color = "black") + coord_flip() + facet_wrap(~ hemisphere, scales = "free_y")+
+  labs(title = "Top 10 Collected\nMammals by Hemisphere", 
+       x = "Common Names",
+       y = "Species Counts") + theme_classic() +
+  theme( plot.margin = margin(10, 50, 10, 10),
+   plot.background = element_rect(fill = "#1e1e1e", color = "black"),
+    panel.background = element_rect(fill = "#2b2b2b", color =  NA),
+    plot.title = element_text(face = "bold", size = 18, hjust = 0.5, color = "lightgreen"),
+  axis.title = element_text(face = "bold", size = 14, color = "lightgreen"),
+  axis.text = element_text(color = "white"),
+  panel.grid.major = element_line(color = "lightgreen"),
+  panel.grid.minor = element_line(color = "lightgreen"), strip.background = element_rect(color = "#2b2b2b", fill = "#1e1e1e"),strip.text = element_text(color = "white", face = "bold"),
+  axis.line.x = element_line(color = "black")) 
+
+ 
+
+```
+## Results and Visualizations
+4. Map
+```{r}
+# Loading this map to get a picture of New Mexico
+library(maps)
+
+# New Mexico outline loading
+outline <- map_data("state")
+outline <- subset(outline, region == "new mexico")
+
+# Creating the map, and customize the data points and state color
+ggplot() +
+  geom_polygon(data = outline,
+               aes(x = long, y = lat, group = group),
+               fill = "#e06666ff", color = "#e06666ff") +
+  geom_point(data = collection,
+             aes(x = decimal_longitude, y = decimal_latitude),
+             color = "darkgreen", size = 3) + coord_quickmap(xlim = c(-109.1, -103.0),
+                 ylim = c(31.2, 37.2)) + labs(title = "Map of Collections\nin New Mexico", 
+       x = "Longitude",
+       y = "Lattitude") +
+  theme_minimal() + theme( plot.margin = margin(10, 50, 10, 10), plot.title = element_text(face = "bold", size = 18, hjust = 0.5, color = "#e06666ff"), panel.background = element_rect(fill = "#1e1e1e", color = NA), axis.text = element_text(color = "white"),
+    plot.background  = element_rect(fill = "#1e1e1e", color = NA), axis.title = element_text(face = "bold", size = 14, color = "#e06666ff"))
+ 
+```
+
